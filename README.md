@@ -2,12 +2,6 @@
 
 Production-ready Grafana Alloy configuration for Windows Server monitoring with defense-in-depth cardinality protection. Optimized for the [Windows Exporter Dashboard 2025](https://grafana.com/grafana/dashboards/24390-windows-exporter-dashboard-2025/) (ID 24390).
 
-## The Problem
-
-The default Windows integration in Grafana Cloud Fleet Management includes the `service` collector, which generates metrics for **every Windows service** (~150+) across **every state** (8 possible values) = potentially **~1,200+ series per host** — just from services alone. Updates to the default template can silently cause massive metric billing increases.
-
-This config solves that problem with a 5-layer defense.
-
 ## Quick Start
 
 ### 1. Install Grafana Alloy on Windows

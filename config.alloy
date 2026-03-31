@@ -14,11 +14,6 @@
 // ~12 essential services with only running/stopped states (~24 series instead
 // of potentially thousands). See the service filtering rules below to customize.
 //
-// THE PROBLEM: The default Windows integration in Grafana Cloud Fleet
-// Management includes the "service" collector, which generates metrics for
-// EVERY Windows service (~150+) x EVERY state (8 possible values) = ~1,200+
-// series per host — just from services alone. This config solves that.
-//
 // PROTECTION LAYERS:
 //   1. Allow-list    — only dashboard-required metric names pass through
 //   2. Service filter — only monitored services + running/stopped states kept
