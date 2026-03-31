@@ -73,12 +73,27 @@ Log "Config deployed and patched for local testing"
 # ---------------------------------------------------------------------------
 Log "Installing Prometheus..."
 
-$promVersion = "2.53.0"
-$promUrl = "https://github.com/prometheus/prometheus/releases/download/v$promVersion/prometheus-$promVersion.windows-amd64.zip"
-$promZip = "C:\prometheus.zip"
+$promVersion = "3.2.1"
 $promDir = "C:\prometheus"
 
-Invoke-WebRequest -Uri $promUrl -OutFile $promZip -UseBasicParsing
+# Try multiple download attempts with retries
+$promUrl = "https://github.com/prometheus/prometheus/releases/download/v$promVersion/prometheus-$promVersion.windows-amd64.zip"
+$promZip = "C:\prometheus.zip"
+
+$maxRetries = 5
+for ($i = 1; $i -le $maxRetries; $i++) {
+    try {
+        Log "Prometheus download attempt $i of $maxRetries..."
+        Invoke-WebRequest -Uri $promUrl -OutFile $promZip -UseBasicParsing -TimeoutSec 120
+        Log "Download succeeded"
+        break
+    } catch {
+        Log "Download attempt $i failed: $_"
+        if ($i -eq $maxRetries) { throw "Failed to download Prometheus after $maxRetries attempts" }
+        Start-Sleep -Seconds ($i * 10)
+    }
+}
+
 Expand-Archive -Path $promZip -DestinationPath "C:\" -Force
 Rename-Item "C:\prometheus-$promVersion.windows-amd64" $promDir -ErrorAction SilentlyContinue
 
@@ -89,17 +104,20 @@ global:
   evaluation_interval: 15s
 "@ | Out-File -FilePath "$promDir\prometheus.yml" -Encoding UTF8
 
-# Install Prometheus as a service using NSSM
-$nssmUrl = "https://nssm.cc/release/nssm-2.24.zip"
-$nssmZip = "C:\nssm.zip"
-Invoke-WebRequest -Uri $nssmUrl -OutFile $nssmZip -UseBasicParsing
-Expand-Archive -Path $nssmZip -DestinationPath "C:\nssm" -Force
-$nssm = "C:\nssm\nssm-2.24\win64\nssm.exe"
+# Create a scheduled task to run Prometheus (no NSSM dependency)
+$promArgs = "--config.file=C:\prometheus\prometheus.yml --web.enable-remote-write-receiver --storage.tsdb.retention.time=1h --web.listen-address=0.0.0.0:9090"
+$action = New-ScheduledTaskAction -Execute "$promDir\prometheus.exe" -Argument $promArgs -WorkingDirectory $promDir
+$trigger = New-ScheduledTaskTrigger -AtStartup
+$principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero)
+Register-ScheduledTask -TaskName "Prometheus" -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force
+Start-ScheduledTask -TaskName "Prometheus"
+Start-Sleep -Seconds 5
+Log "Prometheus installed and started via scheduled task"
 
-& $nssm install prometheus "$promDir\prometheus.exe" "--config.file=$promDir\prometheus.yml --web.enable-remote-write-receiver --storage.tsdb.retention.time=1h --web.listen-address=0.0.0.0:9090"
-& $nssm set prometheus AppDirectory $promDir
-& $nssm start prometheus
-Log "Prometheus installed and started"
+# Open Windows Firewall for Prometheus (port 9090) so tests can query from outside
+New-NetFirewallRule -DisplayName "Prometheus" -Direction Inbound -Protocol TCP -LocalPort 9090 -Action Allow -ErrorAction SilentlyContinue
+Log "Windows Firewall rule added for Prometheus port 9090"
 
 # ---------------------------------------------------------------------------
 # 4. Set environment variables and start Alloy

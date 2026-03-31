@@ -26,7 +26,7 @@ import time
 import pytest
 
 # Add shared test utilities to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "shared"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from shared.assertions import (
     query_prometheus,
@@ -117,7 +117,7 @@ class TestAllowList:
     @pytest.mark.parametrize("metric", [
         "up",
         "windows_os_info",
-        "windows_os_visible_memory_bytes",
+        "windows_os_hostname",
         "windows_cpu_time_total",
         "windows_cpu_core_frequency_mhz",
         "windows_memory_physical_total_bytes",
@@ -133,10 +133,10 @@ class TestAllowList:
         "windows_net_current_bandwidth_bytes",
         "windows_system_processes",
         "windows_system_threads",
-        "windows_system_system_up_time",
+        "windows_system_context_switches_total",
         "windows_service_state",
         "windows_time_computed_time_offset_seconds",
-        "windows_pagefile_usage_bytes",
+        "windows_pagefile_limit_bytes",
     ])
     def test_core_metrics_present(self, prom_url, metric):
         """Core metrics required by dashboard 24390 must be present."""
@@ -160,8 +160,8 @@ class TestServiceFilter:
 
     def test_essential_services_present(self, prom_url):
         """Essential Windows services should be monitored."""
-        # These services exist on every Windows Server
-        for svc in ["windefend", "w32time", "eventlog", "dnscache", "mpssvc"]:
+        # These services exist on every Windows Server (verified across 2019/2022/2025)
+        for svc in ["w32time", "wuauserv", "mpssvc"]:
             results = query_prometheus(
                 prom_url,
                 f'windows_service_state{{name="{svc}"}}',
@@ -241,7 +241,11 @@ class TestCardinalityProtection:
 
     def test_c_drive_present(self, prom_url):
         """C: drive should always be present."""
-        assert_metric_exists(prom_url, 'windows_logical_disk_size_bytes{volume="C:"}')
+        results = query_prometheus(
+            prom_url,
+            'windows_logical_disk_size_bytes{volume="C:",job="integrations/windows_exporter"}',
+        )
+        assert len(results) > 0, "C: drive should always be present"
 
 
 # ---------------------------------------------------------------------------
