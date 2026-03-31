@@ -1,0 +1,130 @@
+###############################################################################
+# Windows Server startup script for Tier 2 testing
+#
+# This script:
+#   1. Installs Grafana Alloy as a Windows service
+#   2. Installs Prometheus for local test assertions
+#   3. Deploys the hardened config
+#   4. Starts both services
+###############################################################################
+
+$ErrorActionPreference = "Stop"
+
+# Create log file for debugging
+$logFile = "C:\alloy-setup.log"
+function Log($msg) {
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    "$timestamp - $msg" | Out-File -Append $logFile
+    Write-Host $msg
+}
+
+Log "Starting Alloy test setup"
+
+# ---------------------------------------------------------------------------
+# 1. Install Grafana Alloy
+# ---------------------------------------------------------------------------
+Log "Installing Grafana Alloy..."
+
+# Download the latest Alloy Windows installer
+$alloyUrl = "https://github.com/grafana/alloy/releases/latest/download/alloy-installer-windows-amd64.exe.zip"
+$alloyZip = "C:\alloy-installer.zip"
+$alloyDir = "C:\Program Files\GrafanaLabs\Alloy"
+
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+Invoke-WebRequest -Uri $alloyUrl -OutFile $alloyZip -UseBasicParsing
+
+Expand-Archive -Path $alloyZip -DestinationPath "C:\alloy-installer" -Force
+$installer = Get-ChildItem "C:\alloy-installer\*.exe" | Select-Object -First 1
+
+# Run silent install
+Start-Process -FilePath $installer.FullName -ArgumentList "/S" -Wait -NoNewWindow
+Log "Alloy installed to $alloyDir"
+
+# ---------------------------------------------------------------------------
+# 2. Deploy hardened config
+# ---------------------------------------------------------------------------
+Log "Deploying hardened config..."
+
+$configPath = "$alloyDir\config.alloy"
+@'
+${config_alloy}
+'@ | Out-File -FilePath $configPath -Encoding UTF8
+
+# Patch config for local testing (point to local Prometheus, remove auth)
+$config = Get-Content $configPath -Raw
+
+# Replace remote write URL with local Prometheus
+$config = $config -replace 'url = sys\.env\("GRAFANA_METRICS_URL"\)', 'url = "http://localhost:9090/api/v1/write"'
+
+# Remove basic_auth blocks for metrics
+$config = $config -replace '(?s)basic_auth\s*\{[^}]*username\s*=\s*sys\.env\("GRAFANA_METRICS_USERNAME"\)[^}]*\}', ''
+
+# Replace Loki URL with localhost blackhole
+$config = $config -replace 'url = sys\.env\("GRAFANA_LOGS_URL"\)', 'url = "http://localhost:3100/loki/api/v1/push"'
+
+# Remove basic_auth blocks for logs
+$config = $config -replace '(?s)basic_auth\s*\{[^}]*username\s*=\s*sys\.env\("GRAFANA_LOGS_USERNAME"\)[^}]*\}', ''
+
+$config | Out-File -FilePath $configPath -Encoding UTF8
+Log "Config deployed and patched for local testing"
+
+# ---------------------------------------------------------------------------
+# 3. Install Prometheus (for local test assertions)
+# ---------------------------------------------------------------------------
+Log "Installing Prometheus..."
+
+$promVersion = "2.53.0"
+$promUrl = "https://github.com/prometheus/prometheus/releases/download/v$promVersion/prometheus-$promVersion.windows-amd64.zip"
+$promZip = "C:\prometheus.zip"
+$promDir = "C:\prometheus"
+
+Invoke-WebRequest -Uri $promUrl -OutFile $promZip -UseBasicParsing
+Expand-Archive -Path $promZip -DestinationPath "C:\" -Force
+Rename-Item "C:\prometheus-$promVersion.windows-amd64" $promDir -ErrorAction SilentlyContinue
+
+# Prometheus config — remote write receiver enabled
+@"
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+"@ | Out-File -FilePath "$promDir\prometheus.yml" -Encoding UTF8
+
+# Install Prometheus as a service using NSSM
+$nssmUrl = "https://nssm.cc/release/nssm-2.24.zip"
+$nssmZip = "C:\nssm.zip"
+Invoke-WebRequest -Uri $nssmUrl -OutFile $nssmZip -UseBasicParsing
+Expand-Archive -Path $nssmZip -DestinationPath "C:\nssm" -Force
+$nssm = "C:\nssm\nssm-2.24\win64\nssm.exe"
+
+& $nssm install prometheus "$promDir\prometheus.exe" "--config.file=$promDir\prometheus.yml --web.enable-remote-write-receiver --storage.tsdb.retention.time=1h --web.listen-address=0.0.0.0:9090"
+& $nssm set prometheus AppDirectory $promDir
+& $nssm start prometheus
+Log "Prometheus installed and started"
+
+# ---------------------------------------------------------------------------
+# 4. Set environment variables and start Alloy
+# ---------------------------------------------------------------------------
+Log "Setting environment variables..."
+
+# Set dummy env vars for the config (endpoints are patched to local)
+[System.Environment]::SetEnvironmentVariable("GCLOUD_RW_API_KEY", "not-used", "Machine")
+[System.Environment]::SetEnvironmentVariable("GRAFANA_METRICS_URL", "not-used", "Machine")
+[System.Environment]::SetEnvironmentVariable("GRAFANA_METRICS_USERNAME", "not-used", "Machine")
+[System.Environment]::SetEnvironmentVariable("GRAFANA_LOGS_URL", "not-used", "Machine")
+[System.Environment]::SetEnvironmentVariable("GRAFANA_LOGS_USERNAME", "not-used", "Machine")
+[System.Environment]::SetEnvironmentVariable("GRAFANA_FLEET_URL", "not-used", "Machine")
+[System.Environment]::SetEnvironmentVariable("GRAFANA_FLEET_INSTANCE_ID", "not-used", "Machine")
+
+Log "Starting Alloy service..."
+Restart-Service "Alloy" -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 5
+
+# Verify services are running
+$alloyStatus = (Get-Service "Alloy" -ErrorAction SilentlyContinue).Status
+$promStatus = (Get-Service "prometheus" -ErrorAction SilentlyContinue).Status
+Log "Alloy service status: $alloyStatus"
+Log "Prometheus service status: $promStatus"
+
+# Create a sentinel file to indicate setup is complete
+"setup_complete" | Out-File -FilePath "C:\alloy-setup-complete.txt"
+Log "Setup complete!"

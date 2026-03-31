@@ -1,0 +1,537 @@
+// ============================================================================
+// GRAFANA ALLOY — HARDENED WINDOWS MONITORING CONFIGURATION
+// ============================================================================
+//
+// Production-ready Windows monitoring with defense-in-depth cardinality
+// protection and data-quality validation.
+//
+// OPTIMIZED FOR: Windows Exporter Dashboard 2025 (ID 24390)
+//   https://grafana.com/grafana/dashboards/24390-windows-exporter-dashboard-2025/
+//
+// METRIC BUDGET: ~90 allow-listed metric names. Actual series count depends
+// on label cardinality (CPU cores, disks, NICs, services).
+// Typical Windows server: 200-500 series. Service monitoring is filtered to
+// ~12 essential services with only running/stopped states (~24 series instead
+// of potentially thousands). See the service filtering rules below to customize.
+//
+// THE PROBLEM: The default Windows integration in Grafana Cloud Fleet
+// Management includes the "service" collector, which generates metrics for
+// EVERY Windows service (~150+) x EVERY state (8 possible values) = ~1,200+
+// series per host — just from services alone. This config solves that.
+//
+// PROTECTION LAYERS:
+//   1. Allow-list    — only dashboard-required metric names pass through
+//   2. Service filter — only monitored services + running/stopped states kept
+//   3. Pattern block — virtual NICs, hidden volumes, GUID patterns dropped
+//   4. Label tagging — metrics missing required labels are tagged (not dropped)
+//                      with quality_warning="missing_required_labels" so they
+//                      are visible in the UI for triage
+//   5. Value limits  — extremely long label values are truncated
+//
+// CREDENTIALS: All secrets come from environment variables. See .env.example.
+//
+// SELF-MONITORING: Disabled by default. Uncomment the remotecfg block below
+// to enable fleet management (~216 additional series with
+// job="integrations/alloy").
+//
+// WINDOWS COMPATIBILITY: Tested on Windows Server 2019+, Windows Server 2022,
+// and Windows 10/11. Requires Grafana Alloy installed as a Windows service.
+// ============================================================================
+
+// ---------------------------------------------------------------------------
+// SELF-MONITORING (optional, default OFF)
+// ---------------------------------------------------------------------------
+// Uncomment the block below to enable Grafana Cloud fleet management.
+// This injects ~216 self-monitoring series (job="integrations/alloy").
+// Only enable if you need centralized config management AND your cardinality
+// budget allows the extra series.
+//
+// remotecfg {
+//     url            = sys.env("GRAFANA_FLEET_URL")
+//     id             = constants.hostname
+//     poll_frequency = "60s"
+//     basic_auth {
+//         username = sys.env("GRAFANA_FLEET_INSTANCE_ID")
+//         password = sys.env("GCLOUD_RW_API_KEY")
+//     }
+// }
+
+// ---------------------------------------------------------------------------
+// GLOBAL SETTINGS
+// ---------------------------------------------------------------------------
+logging {
+	level  = "info"
+	format = "logfmt"
+}
+
+// ---------------------------------------------------------------------------
+// REMOTE WRITE ENDPOINTS
+// ---------------------------------------------------------------------------
+
+// Prometheus — metrics
+prometheus.remote_write "metrics_service" {
+	// Uncomment for fleet deployments:
+	// external_labels = {
+	//   environment = "production",
+	//   region      = "us-east-1",
+	//   cluster     = "default",
+	// }
+
+	endpoint {
+		url = sys.env("GRAFANA_METRICS_URL")
+		basic_auth {
+			username = sys.env("GRAFANA_METRICS_USERNAME")
+			password = sys.env("GCLOUD_RW_API_KEY")
+		}
+	}
+}
+
+// Loki — logs (Windows Event Log)
+loki.write "grafana_cloud_loki" {
+	endpoint {
+		url = sys.env("GRAFANA_LOGS_URL")
+		basic_auth {
+			username = sys.env("GRAFANA_LOGS_USERNAME")
+			password = sys.env("GCLOUD_RW_API_KEY")
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TARGET DISCOVERY
+// ---------------------------------------------------------------------------
+discovery.relabel "integrations_windows_exporter" {
+	targets = prometheus.exporter.windows.integrations_windows_exporter.targets
+	rule {
+		target_label = "instance"
+		replacement  = constants.hostname
+	}
+	rule {
+		target_label = "job"
+		replacement  = "integrations/windows_exporter"
+	}
+}
+
+// ---------------------------------------------------------------------------
+// WINDOWS EXPORTER
+// ---------------------------------------------------------------------------
+prometheus.exporter.windows "integrations_windows_exporter" {
+	// Collectors required by dashboard 24390.
+	// "service" is included but heavily filtered in the relabeling pipeline
+	// to prevent cardinality explosion.
+	enabled_collectors = [
+		"cpu",
+		"logical_disk",
+		"memory",
+		"net",
+		"os",
+		"service",
+		"system",
+		"time",
+		"diskdrive",
+		"pagefile",
+	]
+}
+
+// ---------------------------------------------------------------------------
+// SCRAPE
+// ---------------------------------------------------------------------------
+prometheus.scrape "integrations_windows_exporter" {
+	targets         = discovery.relabel.integrations_windows_exporter.output
+	forward_to      = [prometheus.relabel.integrations_windows_exporter.receiver]
+	scrape_interval = "60s"
+}
+
+// ---------------------------------------------------------------------------
+// RELABELING PIPELINE
+// ---------------------------------------------------------------------------
+prometheus.relabel "integrations_windows_exporter" {
+	forward_to = [prometheus.remote_write.metrics_service.receiver]
+
+	// =======================================================================
+	// LAYER 1: Allow-list — only dashboard-required metrics pass through
+	// =======================================================================
+	rule {
+		source_labels = ["__name__"]
+		regex = join([
+			// -- Uptime & general --
+			"up",
+			"windows_exporter_build_info",
+			"windows_exporter_collector_success",
+			"windows_exporter_collector_duration_seconds",
+
+			// -- OS info --
+			"windows_os_info",
+			"windows_os_hostname",
+			"windows_os_physical_memory_free_bytes",
+			"windows_os_time",
+			"windows_os_timezone",
+			"windows_os_visible_memory_bytes",
+			"windows_os_paging_free_bytes",
+			"windows_os_paging_limit_bytes",
+			"windows_os_processes",
+			"windows_os_processes_limit",
+			"windows_os_virtual_memory_bytes",
+			"windows_os_virtual_memory_free_bytes",
+			"windows_os_users",
+			"windows_cs_hostname",
+			"windows_cs_logical_processors",
+			"windows_cs_physical_memory_bytes",
+
+			// -- CPU --
+			"windows_cpu_time_total",
+			"windows_cpu_core_frequency_mhz",
+			"windows_cpu_logical_processor",
+			"windows_cpu_processor_performance_total",
+			"windows_cpu_clock_interrupts_total",
+			"windows_cpu_dpcs_total",
+			"windows_cpu_interrupts_total",
+			"windows_cpu_processor_utility_total",
+
+			// -- Memory --
+			"windows_memory_physical_total_bytes",
+			"windows_memory_physical_free_bytes",
+			"windows_memory_available_bytes",
+			"windows_memory_cache_bytes",
+			"windows_memory_cache_faults_total",
+			"windows_memory_commit_limit",
+			"windows_memory_committed_bytes",
+			"windows_memory_modified_page_list_bytes",
+			"windows_memory_page_faults_total",
+			"windows_memory_pool_nonpaged_alloc_bytes",
+			"windows_memory_pool_nonpaged_bytes",
+			"windows_memory_pool_paged_alloc_bytes",
+			"windows_memory_pool_paged_bytes",
+			"windows_memory_pool_paged_resident_bytes",
+			"windows_memory_standby_cache_bytes",
+			"windows_memory_standby_cache_core_bytes",
+			"windows_memory_standby_cache_normal_priority_bytes",
+			"windows_memory_standby_cache_reserve_bytes",
+			"windows_memory_swap_page_operations_total",
+			"windows_memory_swap_page_reads_total",
+			"windows_memory_swap_page_writes_total",
+			"windows_memory_transition_faults_total",
+
+			// -- Pagefile --
+			"windows_pagefile_usage_bytes",
+			"windows_pagefile_limit_bytes",
+			"windows_pagefile_current_usage_percent",
+
+			// -- Logical disk --
+			"windows_logical_disk_free_bytes",
+			"windows_logical_disk_size_bytes",
+			"windows_logical_disk_read_bytes_total",
+			"windows_logical_disk_write_bytes_total",
+			"windows_logical_disk_reads_total",
+			"windows_logical_disk_writes_total",
+			"windows_logical_disk_read_latency_seconds_total",
+			"windows_logical_disk_write_latency_seconds_total",
+			"windows_logical_disk_read_seconds_total",
+			"windows_logical_disk_write_seconds_total",
+			"windows_logical_disk_idle_seconds_total",
+			"windows_logical_disk_split_ios_total",
+			"windows_logical_disk_requests_queued",
+
+			// -- Physical disk (diskdrive) --
+			"windows_diskdrive_info",
+			"windows_diskdrive_size_bytes",
+			"windows_diskdrive_status",
+
+			// -- Network --
+			"windows_net_bytes_received_total",
+			"windows_net_bytes_sent_total",
+			"windows_net_bytes_total",
+			"windows_net_current_bandwidth_bytes",
+			"windows_net_packets_outbound_discarded_total",
+			"windows_net_packets_outbound_errors_total",
+			"windows_net_packets_received_discarded_total",
+			"windows_net_packets_received_errors_total",
+			"windows_net_packets_received_total",
+			"windows_net_packets_sent_total",
+
+			// -- System --
+			"windows_system_context_switches_total",
+			"windows_system_exception_dispatches_total",
+			"windows_system_processor_queue_length",
+			"windows_system_processes",
+			"windows_system_threads",
+			"windows_system_system_calls_total",
+			"windows_system_system_up_time",
+
+			// -- Time --
+			"windows_time_computed_time_offset_seconds",
+			"windows_time_ntp_round_trip_delay_seconds",
+			"windows_time_clock_frequency_adjustment_ppb_total",
+
+			// -- Service (filtered by Layer 2) --
+			"windows_service_state",
+			"windows_service_start_mode",
+			"windows_service_status",
+			"windows_service_info",
+
+			// -- Exporter process --
+			"process_cpu_seconds_total",
+			"process_resident_memory_bytes",
+		], "|")
+		action = "keep"
+	}
+
+	// =======================================================================
+	// LAYER 2: Service cardinality filter
+	//
+	// The "service" collector generates windows_service_state for EVERY
+	// Windows service (~150+) x EVERY state (8 values: running, stopped,
+	// start pending, stop pending, continue pending, pause pending, paused,
+	// unknown) = potentially ~1,200+ series per host.
+	//
+	// This filter:
+	//   a) Only keeps services we care about (default ~12)
+	//   b) Only keeps "running" and "stopped" states (2 of 8)
+	//
+	// Result: ~12 services x 2 states = ~24 series (vs ~1,200+)
+	//
+	// TO CUSTOMIZE: Add your own services to the regex in the first rule:
+	//   "windows_service_state@(windefend|alloy|winrm|my_custom_svc)"
+	// =======================================================================
+
+	// Step 2a: Tag service metrics for monitored services
+	rule {
+		source_labels = ["__name__", "name"]
+		separator     = "@"
+		regex         = "windows_service_state@(windefend|alloy|winrm|w32time|wuauserv|eventlog|dhcp|dnscache|lanmanserver|lanmanworkstation|mpssvc|bits)"
+		target_label  = "__keepme"
+		replacement   = "1"
+	}
+
+	// Step 2b: Drop service_state for non-monitored services
+	rule {
+		source_labels = ["__name__", "__keepme"]
+		separator     = "@"
+		regex         = "windows_service_state@"
+		action        = "drop"
+	}
+
+	// Step 2c: Clean up temp label
+	rule {
+		source_labels = ["__name__"]
+		regex         = "windows_service_state"
+		target_label  = "__keepme"
+		replacement   = ""
+	}
+
+	// Step 2d: Tag service metrics for desired states
+	rule {
+		source_labels = ["__name__", "state"]
+		separator     = "@"
+		regex         = "windows_service_state@(running|stopped)"
+		target_label  = "__keepme2"
+		replacement   = "1"
+	}
+
+	// Step 2e: Drop service_state for non-desired states
+	rule {
+		source_labels = ["__name__", "__keepme2"]
+		separator     = "@"
+		regex         = "windows_service_state@"
+		action        = "drop"
+	}
+
+	// Step 2f: Clean up temp label
+	rule {
+		source_labels = ["__name__"]
+		regex         = "windows_service_state"
+		target_label  = "__keepme2"
+		replacement   = ""
+	}
+
+	// Apply same service name filter to windows_service_start_mode, _status, _info
+	rule {
+		source_labels = ["__name__", "name"]
+		separator     = "@"
+		regex         = "windows_service_(start_mode|status|info)@(windefend|alloy|winrm|w32time|wuauserv|eventlog|dhcp|dnscache|lanmanserver|lanmanworkstation|mpssvc|bits)"
+		target_label  = "__keepme3"
+		replacement   = "1"
+	}
+
+	rule {
+		source_labels = ["__name__", "__keepme3"]
+		separator     = "@"
+		regex         = "windows_service_(start_mode|status|info)@"
+		action        = "drop"
+	}
+
+	rule {
+		source_labels = ["__name__"]
+		regex         = "windows_service_(start_mode|status|info)"
+		target_label  = "__keepme3"
+		replacement   = ""
+	}
+
+	// =======================================================================
+	// LAYER 3: Cardinality protection — drop high-churn label patterns
+	// =======================================================================
+
+	// Drop virtual/tunnel network interfaces (Hyper-V, isatap, Teredo, loopback)
+	rule {
+		source_labels = ["__name__", "nic"]
+		regex         = "windows_net_.+;.*(isatap|Teredo|Loopback|vEthernet|6to4|WFP).*"
+		action        = "drop"
+	}
+
+	// Drop hidden system volumes (HarddiskVolume partitions)
+	rule {
+		source_labels = ["__name__", "volume"]
+		regex         = "windows_logical_disk_.+;.*HarddiskVolume.*"
+		action        = "drop"
+	}
+
+	// Drop metrics where 'volume' label contains a GUID
+	rule {
+		source_labels = ["volume"]
+		regex         = ".*[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}.*"
+		action        = "drop"
+	}
+
+	// Drop the _Total pseudo-instance for logical disks (aggregate, not a real volume)
+	rule {
+		source_labels = ["__name__", "volume"]
+		regex         = "windows_logical_disk_.+;_Total"
+		action        = "drop"
+	}
+
+	// Drop the _Total pseudo-instance for network (aggregate, not a real NIC)
+	rule {
+		source_labels = ["__name__", "nic"]
+		regex         = "windows_net_.+;_Total"
+		action        = "drop"
+	}
+
+	// =======================================================================
+	// LAYER 4: Label validation — TAG metrics missing required labels
+	//
+	// Instead of silently dropping, we add quality_warning="missing_required_labels"
+	// so operators can query for {quality_warning=~".+"} to find and triage
+	// unapproved or misconfigured metric sources.
+	//
+	// REQUIRED LABELS BY METRIC FAMILY:
+	//   windows_logical_disk_* → volume
+	//   windows_net_*          → nic
+	//   windows_cpu_*          → core
+	//
+	// If a metric arrives without the labels above, it gets tagged — not
+	// dropped. This catches misconfigured scrape targets or relabel rules
+	// that accidentally strip labels.
+	// =======================================================================
+
+	// Logical disk metrics SHOULD have volume
+	rule {
+		source_labels = ["__name__", "volume"]
+		regex         = "windows_logical_disk_.+;"
+		target_label  = "quality_warning"
+		replacement   = "missing_required_labels"
+	}
+
+	// Network metrics SHOULD have nic
+	rule {
+		source_labels = ["__name__", "nic"]
+		regex         = "windows_net_.+;"
+		target_label  = "quality_warning"
+		replacement   = "missing_required_labels"
+	}
+
+	// CPU metrics SHOULD have core
+	rule {
+		source_labels = ["__name__", "core"]
+		regex         = "windows_cpu_.+;"
+		target_label  = "quality_warning"
+		replacement   = "missing_required_labels"
+	}
+
+	// =======================================================================
+	// LAYER 5: Label value limits
+	// =======================================================================
+
+	// Truncate volume label to 100 chars to prevent runaway label cardinality
+	rule {
+		source_labels = ["volume"]
+		regex         = "(.{100}).*"
+		target_label  = "volume"
+		replacement   = "${1}_TRUNCATED"
+	}
+}
+
+// ---------------------------------------------------------------------------
+// LOG COLLECTION (Windows Event Log)
+// ---------------------------------------------------------------------------
+//
+// By default, ships Application, System, and Security event logs.
+// This provides equivalent coverage to Linux systemd journal collection.
+//
+// COST CONTROL OPTIONS (uncomment to activate):
+//
+//   1. Filter by level — only ship warnings and above:
+//      Modify the xpath_query to filter on Level.
+//
+//   2. Filter by source — only ship logs from specific providers:
+//      Modify the xpath_query to filter by Provider[@Name].
+//
+//   3. Rate limit — cap log throughput per stream:
+//      Add a loki.process stage.limit block.
+//
+// See commented examples below.
+// ---------------------------------------------------------------------------
+
+loki.relabel "integrations_windows_exporter" {
+	forward_to = [loki.write.grafana_cloud_loki.receiver]
+	rule {
+		target_label = "job"
+		replacement  = "integrations/windows_exporter"
+	}
+	rule {
+		target_label = "instance"
+		replacement  = constants.hostname
+	}
+}
+
+// Application log
+loki.source.windowsevent "application" {
+	eventlog_name    = "Application"
+	use_incoming_timestamp = true
+	forward_to       = [loki.process.windows_events.receiver]
+}
+
+// System log
+loki.source.windowsevent "system" {
+	eventlog_name    = "System"
+	use_incoming_timestamp = true
+	forward_to       = [loki.process.windows_events.receiver]
+}
+
+// Security log — can be very chatty on domain controllers.
+// Comment out if the volume is too high for your environment.
+loki.source.windowsevent "security" {
+	eventlog_name    = "Security"
+	use_incoming_timestamp = true
+	forward_to       = [loki.process.windows_events.receiver]
+
+	// -----------------------------------------------------------------
+	// OPTIONAL: Filter by level — only keep warnings and above.
+	// Level values: 1=Critical, 2=Error, 3=Warning, 4=Information, 5=Verbose
+	// Uncomment to only ship warnings and above (levels 1-3):
+	// -----------------------------------------------------------------
+	// xpath_query = "*[System[(Level=1 or Level=2 or Level=3)]]"
+}
+
+loki.process "windows_events" {
+	// -----------------------------------------------------------------
+	// OPTIONAL: Rate limit — cap log volume per stream.
+	// Useful as a safety net against log storms.
+	// -----------------------------------------------------------------
+	// stage.limit {
+	//     rate  = 100   // lines per second
+	//     burst = 500   // burst allowance
+	//     drop  = true  // drop excess (vs backpressure)
+	// }
+
+	forward_to = [loki.relabel.integrations_windows_exporter.receiver]
+}

@@ -1,0 +1,7 @@
+# Copy this file to terraform.tfvars and fill in your GCP project:
+#   cp terraform.tfvars.example terraform.tfvars
+
+project_id   = "your-gcp-project-id"
+region       = "us-central1"
+zone         = "us-central1-a"
+machine_type = "n2-standard-2"

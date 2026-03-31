@@ -1,0 +1,121 @@
+# Synthetic Windows metrics for testing cardinality protection and label validation rules.
+# Served by the fixture-server container in Docker Compose.
+#
+# Categories:
+#   1. Metrics that SHOULD be DROPPED by Layer 2 (service cardinality filter)
+#   2. Metrics that SHOULD be DROPPED by Layer 3 (pattern block)
+#   3. Metrics that SHOULD be TAGGED by Layer 4 (missing required labels)
+#   4. Metrics NOT on the allow-list (should be dropped by Layer 1)
+#   5. Clean metrics that SHOULD pass through unmodified
+
+# ==========================================================================
+# CATEGORY 1: Should be DROPPED by Layer 2 service cardinality filter
+# ==========================================================================
+
+# Non-monitored services (should be dropped — not in the monitored service list)
+windows_service_state{name="spooler",state="running"} 1
+windows_service_state{name="spooler",state="stopped"} 0
+windows_service_state{name="wbiosrvc",state="running"} 1
+windows_service_state{name="tabletinputservice",state="stopped"} 0
+
+# Non-desired state for monitored service (should be dropped — "start_pending" not in running|stopped)
+windows_service_state{name="windefend",state="start_pending"} 0
+windows_service_state{name="alloy",state="pause_pending"} 0
+
+# ==========================================================================
+# CATEGORY 2: Should be DROPPED by Layer 3 pattern block
+# ==========================================================================
+
+# Virtual/tunnel network interfaces (Hyper-V, isatap, Teredo)
+windows_net_bytes_received_total{nic="isatap.contoso.com"} 1000000
+windows_net_bytes_sent_total{nic="Teredo Tunneling Pseudo-Interface"} 2000000
+windows_net_bytes_received_total{nic="vEthernet (Default Switch)"} 3000000
+windows_net_packets_received_total{nic="Microsoft 6to4 Adapter"} 50000
+windows_net_bytes_received_total{nic="WFP Native MAC Layer LightWeight Filter"} 100000
+
+# Hidden system volumes (HarddiskVolume)
+windows_logical_disk_size_bytes{volume="HarddiskVolume1"} 524288000
+windows_logical_disk_free_bytes{volume="HarddiskVolume2"} 0
+
+# GUID in volume label
+windows_logical_disk_size_bytes{volume="Volume{8fa12b3c-4d5e-6f7a-8b9c-0d1e2f3a4b5c}"} 107374182400
+
+# _Total pseudo-instances
+windows_logical_disk_size_bytes{volume="_Total"} 500000000000
+windows_net_bytes_received_total{nic="_Total"} 99999999
+
+# ==========================================================================
+# CATEGORY 3: Should be TAGGED with quality_warning="missing_required_labels"
+# These pass the allow-list but are missing required labels.
+# ==========================================================================
+
+# Logical disk metric without volume label
+windows_logical_disk_size_bytes 107374182400
+
+# Network metric without nic label
+windows_net_bytes_received_total 5000000
+
+# CPU metric without core label
+windows_cpu_time_total{mode="idle"} 123456.78
+
+# ==========================================================================
+# CATEGORY 4: Should be DROPPED by Layer 1 (not on allow-list)
+# ==========================================================================
+
+# Process collector metrics (should never appear with our enabled_collectors)
+windows_process_cpu_time_total{process="chrome"} 42
+windows_process_private_bytes{process="svchost"} 100000000
+
+# Completely unknown metrics
+some_random_custom_metric{app="test"} 999
+another_unknown_metric 0
+
+# ==========================================================================
+# CATEGORY 5: Clean metrics that SHOULD pass through unmodified
+# These have all required labels and are on the allow-list.
+# ==========================================================================
+
+# Clean CPU metrics
+windows_cpu_time_total{core="0",mode="idle"} 999999.99
+windows_cpu_time_total{core="0",mode="system"} 12345.67
+windows_cpu_time_total{core="1",mode="idle"} 888888.88
+windows_cpu_core_frequency_mhz{core="0"} 3600
+
+# Clean memory metrics
+windows_memory_physical_total_bytes 17179869184
+windows_memory_physical_free_bytes 8589934592
+windows_memory_available_bytes 10737418240
+windows_memory_commit_limit 34359738368
+
+# Clean logical disk metrics
+windows_logical_disk_size_bytes{volume="C:"} 107374182400
+windows_logical_disk_free_bytes{volume="C:"} 85899345920
+windows_logical_disk_read_bytes_total{volume="C:"} 50000000000
+windows_logical_disk_write_bytes_total{volume="C:"} 30000000000
+
+# Clean network metrics
+windows_net_bytes_received_total{nic="Intel(R) Ethernet Connection"} 10000000000
+windows_net_bytes_sent_total{nic="Intel(R) Ethernet Connection"} 5000000000
+windows_net_current_bandwidth_bytes{nic="Intel(R) Ethernet Connection"} 125000000
+
+# Clean service metrics (monitored services with desired states)
+windows_service_state{name="windefend",state="running"} 1
+windows_service_state{name="windefend",state="stopped"} 0
+windows_service_state{name="alloy",state="running"} 1
+windows_service_state{name="alloy",state="stopped"} 0
+windows_service_state{name="winrm",state="running"} 1
+windows_service_state{name="w32time",state="running"} 1
+
+# Clean system metrics
+windows_system_processes 150
+windows_system_threads 2500
+windows_system_context_switches_total 1000000000
+windows_system_system_up_time 864000
+
+# Clean OS info
+windows_os_info{product="Windows Server 2022 Standard",version="10.0.20348"} 1
+windows_os_visible_memory_bytes 17179869184
+windows_os_physical_memory_free_bytes 8589934592
+
+# General
+up 1
