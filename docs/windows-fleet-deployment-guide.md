@@ -38,19 +38,21 @@ From your Grafana Cloud stack (grafana.com > My Account > your stack):
 | Logs URL | `https://logs-prod-006.grafana.net/loki/api/v1/push` | Loki > Details |
 | Logs Username | `000000` | Loki > Details |
 
-## Step 1: Install the Alloy MSI
+## Step 1: Install Alloy
 
-Download the MSI from [Grafana Alloy releases](https://github.com/grafana/alloy/releases) or the [Grafana downloads page](https://grafana.com/docs/alloy/latest/set-up/install/windows/).
+Download the Windows installer zip from [Grafana Alloy releases](https://github.com/grafana/alloy/releases) (the `alloy-installer-windows-amd64.exe.zip` file) or the [Grafana downloads page](https://grafana.com/docs/alloy/latest/set-up/install/windows/).
 
-The MSI installs Alloy to `C:\Program Files\GrafanaLabs\Alloy\` and registers a Windows service named **Alloy** that starts automatically.
+The installer registers Alloy to `C:\Program Files\GrafanaLabs\Alloy\` and creates a Windows service named **Alloy** that starts automatically.
 
 For silent install across your fleet:
 
 ```powershell
-msiexec /i alloy-installer-windows-amd64.msi /quiet /norestart
+# Extract and run the installer silently
+Expand-Archive -Path alloy-installer-windows-amd64.exe.zip -DestinationPath .\alloy-installer
+.\alloy-installer\alloy-installer-windows-amd64.exe /S
 ```
 
-This works with any deployment tool that pushes MSIs (GPO Software Installation, SCCM, Intune, PDQ Deploy, etc.).
+This works with any deployment tool that can run exe installers (GPO startup scripts, SCCM, Intune, PDQ Deploy, etc.).
 
 ## Step 2: Deploy the Config File
 
@@ -113,7 +115,7 @@ Get-WinEvent -LogName Application -ProviderName Alloy -MaxEvents 20
 
 | Step | What | How (Fleet) |
 |------|------|-------------|
-| 1 | Install MSI | GPO Software Installation / SCCM / Intune |
+| 1 | Install Alloy | GPO startup script / SCCM / Intune |
 | 2 | Deploy config.alloy | File copy via GPO Preferences / SCCM package |
 | 3 | Set env vars | GPO Preferences > Environment Variables |
 | 4 | Restart service | Startup script or scheduled task |
