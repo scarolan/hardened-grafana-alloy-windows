@@ -56,7 +56,7 @@ This works with any deployment tool that can run exe installers (GPO startup scr
 
 ## Step 2: Deploy the Config File
 
-The MSI drops an empty `config.alloy`. Replace it with the hardened config from this repo.
+The installer drops an empty `config.alloy`. Replace it with the hardened config from this repo.
 
 Copy `config.alloy` from this repository to each server at:
 
