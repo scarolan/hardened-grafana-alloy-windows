@@ -56,13 +56,21 @@ This works with any deployment tool that can run exe installers (GPO startup scr
 
 ## Step 2: Deploy the Config File
 
-The installer drops an empty `config.alloy`. Replace it with the hardened config from this repo.
-
-Copy `config.alloy` from this repository to each server at:
+The installer drops a default `config.alloy`. Replace it with the hardened config from this repo at:
 
 ```
 C:\Program Files\GrafanaLabs\Alloy\config.alloy
 ```
+
+How you distribute the file depends on your tooling:
+
+| Tool | Method |
+|------|--------|
+| **GPO** | Group Policy Preferences > Files — copy from a network share (e.g. `\\fileserver\alloy\config.alloy`) to the target path |
+| **SCCM / MECM** | Package the config file and deploy it as a program or application |
+| **Intune** | Wrap the file copy in a Win32 app or use a remediation script |
+| **PDQ Deploy** | Add a "Copy File" step pointing to a central share |
+| **Manual / small fleet** | `Copy-Item` via PowerShell remoting or `robocopy` from a share |
 
 This config includes five layers of cardinality protection that reduce metric volume by ~90% compared to a default install. A typical server sends 200-500 series instead of 1,500-3,000+.
 
