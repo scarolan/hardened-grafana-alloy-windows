@@ -4,11 +4,33 @@ This guide walks you through deploying Grafana Alloy to multiple Windows servers
 
 ## What You Need
 
+### Create an Access Policy and Token
+
+1. Visit your org's access policies page: `https://grafana.com/orgs/YOURORG/access-policies`
+2. Click **Create access policy**
+3. Give it a descriptive name (e.g. "Grafana Alloy POC")
+4. Under **Realms**, select the stack(s) this policy applies to (single stack or all stacks)
+5. Skip the scopes checkboxes. Instead, use the **Add scope** dropdown and select **set:alloy-data-write**
+6. Click **Create**
+
+![Create access policy](create_access_policy.png)
+
+7. On the newly created policy, click the **Add token** button in the lower right
+8. Give the token a name and set an expiration (e.g. 90 days for a POV)
+9. Click **Create**
+
+![Create token](create_token.png)
+
+**Copy the token immediately and save it to a file. You only get one chance to copy it.**
+
+This token is the value you'll use for the `GCLOUD_RW_API_KEY` environment variable below.
+
+### Gather Your Endpoints
+
 From your Grafana Cloud stack (grafana.com > My Account > your stack):
 
 | Value | Example | Where to Find |
 |-------|---------|---------------|
-| API Key | `glc_xxxxxxxxxxxxx` | Security > API Keys > Add API key (MetricsPublisher role) |
 | Metrics URL | `https://prometheus-prod-13-prod-us-east-0.grafana.net/api/prom/push` | Prometheus > Details |
 | Metrics Username | `000000` | Prometheus > Details |
 | Logs URL | `https://logs-prod-006.grafana.net/loki/api/v1/push` | Loki > Details |
