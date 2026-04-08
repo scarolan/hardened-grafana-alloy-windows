@@ -16,6 +16,8 @@ This guide walks you through deploying Grafana Alloy to multiple Windows servers
 ![Create access policy](create_access_policy.png)
 
 7. On the newly created policy, click the **Add token** button in the lower right
+
+![Add token button](add_token.png)
 8. Give the token a name and set an expiration (e.g. 90 days for a POV)
 9. Click **Create**
 
