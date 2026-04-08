@@ -97,7 +97,7 @@ For GPO deployments, a scheduled task or startup script handles this. The servic
 
 ## Step 5: Verify and Import the Dashboard
 
-After a few minutes, metrics should appear in your Grafana Cloud stack. Import **Dashboard ID 24390** (Windows Exporter Dashboard 2025) to visualize everything the hardened config collects.
+After a few minutes, metrics should appear in your Grafana Cloud stack. Import [**Dashboard ID 24390**](https://grafana.com/grafana/dashboards/24390-windows-exporter-dashboard-2025/) (Windows Exporter Dashboard 2025) to visualize everything the hardened config collects.
 
 To verify from any server:
 
