@@ -1,0 +1,109 @@
+###############################################################################
+# Fleet Management smoke test — Windows startup script
+# Installs Alloy and deploys the bare-minimum fleet-config.alloy.
+###############################################################################
+
+$ErrorActionPreference = "Stop"
+
+$logFile = "C:\fleet-test-setup.log"
+function Log($msg) {
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    "$timestamp - $msg" | Out-File -Append $logFile
+    Write-Host $msg
+}
+
+Log "Starting Fleet Management test setup (Windows)"
+
+# ---------------------------------------------------------------------------
+# 1. Install Grafana Alloy
+# ---------------------------------------------------------------------------
+Log "Installing Grafana Alloy..."
+
+$alloyUrl = "https://github.com/grafana/alloy/releases/latest/download/alloy-installer-windows-amd64.exe.zip"
+$alloyZip = "C:\alloy-installer.zip"
+$alloyDir = "C:\Program Files\GrafanaLabs\Alloy"
+
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+$maxRetries = 5
+for ($i = 1; $i -le $maxRetries; $i++) {
+    try {
+        Log "Alloy download attempt $i of $maxRetries..."
+        Invoke-WebRequest -Uri $alloyUrl -OutFile $alloyZip -UseBasicParsing -TimeoutSec 120
+        Log "Download succeeded"
+        break
+    } catch {
+        Log "Download attempt $i failed: $_"
+        if ($i -eq $maxRetries) { throw "Failed to download Alloy after $maxRetries attempts" }
+        Start-Sleep -Seconds ($i * 10)
+    }
+}
+
+Expand-Archive -Path $alloyZip -DestinationPath "C:\alloy-installer" -Force
+$installer = Get-ChildItem "C:\alloy-installer\*.exe" | Select-Object -First 1
+
+Start-Process -FilePath $installer.FullName -ArgumentList "/S" -Wait -NoNewWindow
+Log "Alloy installed to $alloyDir"
+
+# ---------------------------------------------------------------------------
+# 2. Set environment variable for API key
+# ---------------------------------------------------------------------------
+Log "Setting credentials..."
+[System.Environment]::SetEnvironmentVariable("GCLOUD_RW_API_KEY", "${gcloud_rw_api_key}", "Machine")
+
+# ---------------------------------------------------------------------------
+# 3. Deploy fleet-config.alloy
+# ---------------------------------------------------------------------------
+Log "Deploying fleet config..."
+
+$configPath = "$alloyDir\config.alloy"
+@'
+remotecfg {
+  url            = "${fleet_url}"
+  id             = constants.hostname
+  poll_frequency = "60s"
+  attributes     = encoding.from_json(coalesce(`{"env":"fleet-test","team":"ops"}`, `{}`))
+
+  basic_auth {
+    username = "${fleet_username}"
+    password = sys.env("GCLOUD_RW_API_KEY")
+  }
+}
+
+prometheus.remote_write "metrics_service" {
+  endpoint {
+    url = "${prometheus_url}"
+
+    basic_auth {
+      username = "${prometheus_username}"
+      password = sys.env("GCLOUD_RW_API_KEY")
+    }
+  }
+}
+
+loki.write "grafana_cloud_loki" {
+  endpoint {
+    url = "${loki_url}"
+
+    basic_auth {
+      username = "${loki_username}"
+      password = sys.env("GCLOUD_RW_API_KEY")
+    }
+  }
+}
+'@ | Out-File -FilePath $configPath -Encoding UTF8
+
+Log "Config deployed to $configPath"
+
+# ---------------------------------------------------------------------------
+# 4. Start Alloy service
+# ---------------------------------------------------------------------------
+Log "Starting Alloy service..."
+Restart-Service "Alloy" -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 10
+
+$alloyStatus = (Get-Service "Alloy" -ErrorAction SilentlyContinue).Status
+Log "Alloy service status: $alloyStatus"
+
+"setup_complete" | Out-File -FilePath "C:\fleet-test-complete.txt"
+Log "Fleet test setup complete!"

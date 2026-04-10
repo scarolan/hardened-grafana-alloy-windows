@@ -1,0 +1,88 @@
+#!/bin/bash
+# Fleet Management smoke test — Linux startup script
+# Installs Alloy and deploys the bare-minimum fleet-config.alloy.
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+echo "=== Fleet Management test setup (Linux) ==="
+
+# -----------------------------------------------------------------------
+# Step 1: Install Grafana Alloy
+# -----------------------------------------------------------------------
+echo "=== Step 1: Install Alloy ==="
+apt-get update -qq
+apt-get install -y -qq gpg wget apt-transport-https software-properties-common
+mkdir -p /etc/apt/keyrings
+wget -qO- https://apt.grafana.com/gpg.key | gpg --dearmor -o /etc/apt/keyrings/grafana.gpg
+echo "deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stable main" \
+  > /etc/apt/sources.list.d/grafana.list
+apt-get update -qq
+apt-get install -y -qq alloy
+
+# -----------------------------------------------------------------------
+# Step 2: Deploy fleet-config.alloy
+# -----------------------------------------------------------------------
+echo "=== Step 2: Deploy fleet config ==="
+mkdir -p /etc/alloy
+
+cat > /etc/alloy/config.alloy <<'ALLOY_CONFIG'
+remotecfg {
+  url            = "${fleet_url}"
+  id             = constants.hostname
+  poll_frequency = "60s"
+  attributes     = encoding.from_json(coalesce(`{"env":"fleet-test","team":"ops"}`, `{}`))
+
+  basic_auth {
+    username = "${fleet_username}"
+    password = sys.env("GCLOUD_RW_API_KEY")
+  }
+}
+
+prometheus.remote_write "metrics_service" {
+  endpoint {
+    url = "${prometheus_url}"
+
+    basic_auth {
+      username = "${prometheus_username}"
+      password = sys.env("GCLOUD_RW_API_KEY")
+    }
+  }
+}
+
+loki.write "grafana_cloud_loki" {
+  endpoint {
+    url = "${loki_url}"
+
+    basic_auth {
+      username = "${loki_username}"
+      password = sys.env("GCLOUD_RW_API_KEY")
+    }
+  }
+}
+ALLOY_CONFIG
+
+# -----------------------------------------------------------------------
+# Step 3: Configure environment and start Alloy
+# -----------------------------------------------------------------------
+echo "=== Step 3: Start Alloy ==="
+
+# Alloy env file — Debian/Ubuntu uses /etc/default/alloy
+cat > /etc/default/alloy <<ENV
+CONFIG_FILE=/etc/alloy/config.alloy
+CUSTOM_ARGS=
+GCLOUD_RW_API_KEY=${gcloud_rw_api_key}
+ENV
+
+# Also write to /etc/sysconfig for RPM-based distro compat
+mkdir -p /etc/sysconfig
+cp /etc/default/alloy /etc/sysconfig/alloy
+
+systemctl daemon-reload
+systemctl enable --now alloy
+systemctl restart alloy
+
+sleep 5
+systemctl is-active alloy && echo "Alloy: OK" || echo "Alloy: FAILED"
+
+echo "=== Fleet test setup complete ==="
+touch /tmp/fleet-test-done
