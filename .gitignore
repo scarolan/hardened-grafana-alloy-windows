@@ -16,6 +16,10 @@ tests/tier1/config.alloy.test
 *.tfstate.backup
 terraform.tfvars
 
+# Infrastructure (Terraform state, credentials, benchmark tooling)
+benchmark/
+deploy/
+
 # IDE
 .vscode/
 .idea/
