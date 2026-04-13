@@ -89,13 +89,17 @@ Volume labels exceeding 100 characters are truncated with `_TRUNCATED` suffix.
 
 ## Series Budget
 
-| Environment | Expected Series | Notes |
-|---|---|---|
-| Typical Windows Server | 200-500 | Depends on CPU cores, disks, NICs |
-| Domain Controller | 300-600 | More services, more NICs |
-| Hyper-V Host | 250-500 | Virtual NICs filtered out |
+Benchmarked on Windows Server 2022 (2 vCPUs, 8 GB RAM, 1 disk, 1 NIC, 200 services):
 
-Compare this to the **unfiltered default**: 1,500-3,000+ series per host.
+| Configuration | Active Series | Description |
+|---|---|---|
+| Bare minimum (4 collectors) | **16** | CPU, memory, disk, network only |
+| **Hardened (this config)** | **135** | Full Dashboard 24390 coverage |
+| Unfiltered (same 10 collectors, no filtering) | **2,909** | Service collector explodes to 2,672 series |
+
+The hardened config scales with hardware -- approximately +5 series per CPU core, +13 per disk volume, +10 per NIC. Production deployments on larger servers typically land around **150-250 series per host**.
+
+See [docs/windows-metrics-benchmark.md](docs/windows-metrics-benchmark.md) for the full breakdown and methodology.
 
 ## Log Collection
 
@@ -108,7 +112,7 @@ See the commented examples in `config.alloy`.
 
 ## Self-Monitoring (Fleet Management)
 
-Disabled by default. Uncomment the `remotecfg` block to enable Grafana Cloud fleet management (~216 additional series). Only enable if your cardinality budget allows it.
+Disabled by default. Uncomment the `remotecfg` block to enable Grafana Cloud fleet management. The self-monitoring overhead depends on the pipeline configuration pushed by Fleet Management.
 
 ## Testing
 
