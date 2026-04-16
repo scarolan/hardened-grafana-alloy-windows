@@ -2,39 +2,12 @@
 
 Production-ready Grafana Alloy configuration for Windows Server monitoring with defense-in-depth cardinality protection. Optimized for the [Windows Exporter Dashboard 2025](https://grafana.com/grafana/dashboards/24390-windows-exporter-dashboard-2025/) (ID 24390).
 
-## Quick Start
+## Pick Your Deployment Path
 
-### 1. Install Grafana Alloy on Windows
-
-Download and install the latest [Grafana Alloy for Windows](https://grafana.com/docs/alloy/latest/set-up/install/windows/).
-
-### 2. Deploy the config
-
-```powershell
-# Copy config to Alloy's config directory
-Copy-Item config.alloy "C:\Program Files\GrafanaLabs\Alloy\config.alloy"
-```
-
-### 3. Set environment variables
-
-```powershell
-# Set credentials (get these from grafana.com → My Account → your stack)
-[System.Environment]::SetEnvironmentVariable("GCLOUD_RW_API_KEY", "glc_xxx", "Machine")
-[System.Environment]::SetEnvironmentVariable("GRAFANA_METRICS_URL", "https://prometheus-prod-xx.grafana.net/api/prom/push", "Machine")
-[System.Environment]::SetEnvironmentVariable("GRAFANA_METRICS_USERNAME", "000000", "Machine")
-[System.Environment]::SetEnvironmentVariable("GRAFANA_LOGS_URL", "https://logs-prod-xxx.grafana.net/loki/api/v1/push", "Machine")
-[System.Environment]::SetEnvironmentVariable("GRAFANA_LOGS_USERNAME", "000000", "Machine")
-```
-
-### 4. Restart Alloy
-
-```powershell
-Restart-Service Alloy
-```
-
-### 5. Import the dashboard
-
-Import [Dashboard 24390](https://grafana.com/grafana/dashboards/24390-windows-exporter-dashboard-2025/) in your Grafana instance.
+| Path | When to use | Guide |
+|------|-------------|-------|
+| **Direct Deployment** | The hardened `config.alloy` lives on each host. You manage config updates via your existing tooling (GPO, SCCM, Intune, manual). | [docs/direct-deployment.md](docs/direct-deployment.md) |
+| **Fleet Management** | A minimal bootstrap config (`fleet-config.alloy`) lives on each host. You build and push the real collection pipelines centrally via Grafana Cloud Fleet Management. | [docs/fleet-management.md](docs/fleet-management.md) |
 
 ## Protection Layers
 
@@ -97,7 +70,7 @@ Benchmarked on Windows Server 2022 (2 vCPUs, 8 GB RAM, 1 disk, 1 NIC, 200 servic
 | **Hardened (this config)** | **135** | Full Dashboard 24390 coverage |
 | Unfiltered (same 10 collectors, no filtering) | **2,909** | Service collector explodes to 2,672 series |
 
-The hardened config scales with hardware -- approximately +5 series per CPU core, +13 per disk volume, +10 per NIC. Production deployments on larger servers typically land around **150-250 series per host**.
+The hardened config scales with hardware — approximately +5 series per CPU core, +13 per disk volume, +10 per NIC. Production deployments on larger servers typically land around **150–250 series per host**.
 
 See [docs/windows-metrics-benchmark.md](docs/windows-metrics-benchmark.md) for the full breakdown and methodology.
 
@@ -109,28 +82,6 @@ Windows Event Logs (Application, System, Security) are shipped to Loki. Optional
 - **Rate limit**: Cap throughput per stream
 
 See the commented examples in `config.alloy`.
-
-## Self-Monitoring (Fleet Management)
-
-Disabled by default. Uncomment the `remotecfg` block to enable Grafana Cloud fleet management. The self-monitoring overhead depends on the pipeline configuration pushed by Fleet Management.
-
-> **⚠️ Fleet Management gotcha: remote_write endpoints are not shared**
->
-> The `prometheus.remote_write` and `loki.write` blocks in `fleet-config.alloy` are **not reachable** from pipelines you push via Fleet Management. Each FM pipeline is wrapped in a sealed `declare` module, and components inside a module can't reference components in the parent scope.
->
-> **You must include a `prometheus.remote_write` and/or `loki.write` block inside every FM pipeline** that ships data. Use `sys.env()` for credentials — set `GCLOUD_RW_API_KEY`, `GRAFANA_METRICS_URL`, `GRAFANA_METRICS_USERNAME`, `GRAFANA_LOGS_URL`, and `GRAFANA_LOGS_USERNAME` once per host so you don't have to hardcode values in every pipeline.
->
-> See `examples/blackbox.alloy` for a complete self-contained pipeline pattern you can copy.
-
-### Why env vars instead of hardcoding values into pipelines?
-
-Two reasons, and neither adds meaningful operational burden:
-
-1. **Secrets don't belong in the Fleet Management UI.** Pipelines you push via FM are stored in Grafana Cloud's config store and visible to anyone with FM access. Hardcoding your API key there means a Grafana Cloud user with the right role can read it, and it ends up in every pipeline export, backup, and screenshot. Keeping it in `sys.env()` means the secret lives on the host — rotated through your existing secret management, never echoed back in the UI.
-
-2. **You already have to set `GCLOUD_RW_API_KEY` on the host.** Alloy can't connect to Fleet Management without it. Since you're already setting one env var, adding four more (URLs + usernames) is ~30 seconds of extra work via the same registry key or `[Environment]::SetEnvironmentVariable(..., 'Machine')` call. It's not "yet another file to manage" — it's four more lines in the mechanism you already use.
-
-The URLs and usernames aren't secret, but keeping them next to the password means rotations and stack migrations are atomic: change the host env, restart Alloy, done. No need to re-edit N pipelines in the FM UI to point at a new stack.
 
 ## Testing
 

@@ -1,6 +1,8 @@
-# Deploy Grafana Alloy to a Windows Fleet
+# Path 1 — Direct Deployment (Windows)
 
-This guide walks you through deploying Grafana Alloy to multiple Windows servers using standard Windows admin tooling (GPO, SCCM, Intune, etc.) with the hardened configuration from this repo.
+Deploy the hardened `config.alloy` directly to each Windows host using standard Windows admin tooling (GPO, SCCM, Intune, PDQ Deploy, manual copy, etc.). The config file lives on the host; there is no remote configuration service.
+
+> Looking for centrally-managed config pushes via Grafana Cloud? See **[Path 2 — Fleet Management](fleet-management.md)**.
 
 ## What You Need
 
@@ -121,12 +123,12 @@ Get-WinEvent -LogName Application -ProviderName Alloy -MaxEvents 20
 
 ## Summary
 
-| Step | What | How (Fleet) |
-|------|------|-------------|
+| Step | What | How (at scale) |
+|------|------|----------------|
 | 1 | Install Alloy | GPO startup script / SCCM / Intune |
 | 2 | Deploy config.alloy | File copy via GPO Preferences / SCCM package |
 | 3 | Set env vars | GPO Preferences > Environment Variables |
 | 4 | Restart service | Startup script or scheduled task |
 | 5 | Import dashboard | One-time, in Grafana Cloud UI |
 
-All five steps use standard Windows admin tooling. No PowerShell scripts to run interactively on each box.
+All five steps use standard Windows admin tooling. No PowerShell scripts to run interactively on each box. When a config change is needed, you redeploy the file — there is no centralized config push.
