@@ -8,11 +8,11 @@ Each Windows host runs a minimal bootstrap config (`fleet-config.alloy`) that co
 
 ### Create an Access Policy and Token
 
-1. Visit your org's access policies page: `https://grafana.com/orgs/YOURORG/access-policies`
+1. Visit your org's access policies page: `https://grafana.com/orgs/<your-org-slug>/access-policies` — replace `<your-org-slug>` with the slug from your Grafana Cloud org URL (the part after `/orgs/`)
 2. Click **Create access policy**
-3. Give it a descriptive name (e.g. "Grafana Alloy POV")
+3. Give it a descriptive name (e.g. "Fleet Management")
 4. Under **Realms**, select the stack(s) this policy applies to
-5. Skip the scopes checkboxes. Use the **Add scope** dropdown and select **set:alloy-data-write**
+5. **Ignore the individual scope checkboxes.** Instead, use the **Add scope** dropdown at the bottom and pick `set:alloy-data-write`
 6. Click **Create**
 
 ![Create access policy](create_access_policy.png)
@@ -21,12 +21,12 @@ Each Windows host runs a minimal bootstrap config (`fleet-config.alloy`) that co
 
 ![Add token button](add_token.png)
 
-8. Name the token and set an expiration (e.g. 90 days for a POV)
+8. Name the token and set an expiration (90 days is typical for a pilot)
 9. Click **Create**
 
 ![Create token](create_token.png)
 
-**Copy the token immediately.** You only get one chance. This is your `GCLOUD_RW_API_KEY`.
+**Copy the token value immediately — it's shown exactly once.** This is your `GCLOUD_RW_API_KEY`.
 
 ### Gather Your Endpoints
 
@@ -61,12 +61,31 @@ Grab the bootstrap config from this repo and replace the default `config.alloy` 
 Invoke-WebRequest `
   -Uri "https://raw.githubusercontent.com/scarolan/hardened-grafana-alloy-windows/main/fleet-config.alloy" `
   -OutFile "C:\Program Files\GrafanaLabs\Alloy\config.alloy"
-
-# Edit the remotecfg URL and username to match your stack
-notepad "C:\Program Files\GrafanaLabs\Alloy\config.alloy"
 ```
 
 Or open the [raw file on GitHub](https://raw.githubusercontent.com/scarolan/hardened-grafana-alloy-windows/main/fleet-config.alloy), copy the contents, and paste into `C:\Program Files\GrafanaLabs\Alloy\config.alloy`.
+
+### Two lines to edit
+
+Open the config (`notepad "C:\Program Files\GrafanaLabs\Alloy\config.alloy"`) and find the `remotecfg` block at the top — it's the block that connects Alloy to Fleet Management. Edit two placeholders:
+
+```alloy
+remotecfg {
+  url            = "https://fleet-management-prod-008.grafana.net"  // ← your regional FM URL
+  id             = constants.hostname
+  poll_frequency = "60s"
+  attributes     = encoding.from_json(coalesce(`{"env":"pov","team":"ops"}`, `{}`))
+
+  basic_auth {
+    username = "<fleet-management-username>"   // ← your FM instance ID (6-digit number)
+    password = sys.env("GCLOUD_RW_API_KEY")
+  }
+}
+```
+
+Both values come from the Fleet Management UI: **Grafana Cloud → Fleet Management → Collector configuration** shows the URL and username for your stack.
+
+The `attributes` map is how you group collectors in FM. The default `env:pov` / `team:ops` are placeholders — adjust to match however you want to target collectors (by team, environment, role, etc.). We'll use these attributes as matchers in Step 5.
 
 This config is deliberately tiny — it only connects to Fleet Management. The real pipelines come down over the wire.
 
@@ -105,7 +124,9 @@ In Grafana Cloud → Fleet Management → Pipelines:
 
 1. Click **Add pipeline**
 2. Name it something like `fm-smoke-test`
-3. Under **Matchers**, target this collector. The safest match for a POV is the collector's own ID (`collector.ID == <hostname>`) — or a broader attribute like `env=pov` if you set one in `fleet-config.alloy`
+3. Under **Matchers**, target this collector. Two common options:
+   - **By attribute** (recommended): match the `env` attribute you set in `fleet-config.alloy`. If you kept the default, that's `env=pov`. This makes the pipeline reusable across all dev/trial collectors.
+   - **By collector ID**: match the specific hostname of this collector (the `id` field in `fleet-config.alloy` is set to `constants.hostname`, so it's literally your host's hostname).
 4. Paste the pipeline below in the config editor
 5. **Save** and **Apply**
 

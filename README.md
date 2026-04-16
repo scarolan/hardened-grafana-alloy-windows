@@ -1,15 +1,36 @@
 # Hardened Grafana Alloy for Windows
 
-This repo is a prebuilt, production-ready Grafana Alloy config that ships exactly what the [Windows Exporter Dashboard 2025 (ID 24390)](https://grafana.com/grafana/dashboards/24390-windows-exporter-dashboard-2025/) needs. Five layers of cardinality protection keep a typical host around **135 series**, scaling to **150–250** on bigger servers — predictable cost, no dashboard regressions.
+[Grafana Alloy](https://grafana.com/docs/alloy/) is a telemetry collector — the open-source agent that scrapes metrics and logs from a host and ships them to Grafana Cloud (or any Prometheus/Loki endpoint). This repo is a prebuilt, production-ready Alloy config that ships exactly what the [Windows Exporter Dashboard 2025 (ID 24390)](https://grafana.com/grafana/dashboards/24390-windows-exporter-dashboard-2025/) needs. Five layers of cardinality protection keep a typical host around **135 series**, scaling to **150–250** on bigger servers — predictable cost, no dashboard regressions.
 
 ## Pick Your Deployment Path
 
 | Path | When to use | Guide |
 |------|-------------|-------|
 | **Direct Deployment** | The hardened `config.alloy` lives on each host. You manage config updates via your existing tooling (GPO, SCCM, Intune, manual). | [docs/direct-deployment.md](docs/direct-deployment.md) |
-| **Fleet Management** | A minimal bootstrap config (`fleet-config.alloy`) lives on each host. You build and push the real collection pipelines centrally via Grafana Cloud Fleet Management. | [docs/fleet-management.md](docs/fleet-management.md) |
+| **Fleet Management** | A minimal bootstrap config (`fleet-config.alloy`) lives on each host. You build and push the real collection pipelines centrally via [Grafana Cloud Fleet Management](https://grafana.com/docs/grafana-cloud/send-data/fleet-management/) — a Grafana Cloud feature that manages Alloy collectors remotely. | [docs/fleet-management.md](docs/fleet-management.md) |
 
 Both paths need the same five environment variables. See **[docs/env-vars.md](docs/env-vars.md)** for the canonical reference and how to set them (Machine scope, service-scoped registry, GPO).
+
+## What's in the box
+
+```
+config.alloy                  # Hardened Alloy config (Alloy configuration syntax)
+fleet-config.alloy            # Minimal bootstrap for Fleet Management
+examples/blackbox.alloy       # Self-contained pipeline pattern (blackbox exporter)
+
+docs/
+  direct-deployment.md        # Path 1 end-to-end guide
+  fleet-management.md         # Path 2 end-to-end guide
+  env-vars.md                 # Canonical reference for all 5 env vars
+  windows-metrics-benchmark.md  # Series-budget benchmark methodology
+
+tests/
+  tier1/                      # Docker-based relabeling pipeline tests (CI)
+  tier2/                      # Real Windows Server VM tests (GCP + Terraform)
+
+.github/workflows/test.yml    # CI: lint + Tier 1 on every push/PR; weekly scheduled run against latest Alloy
+Makefile                      # lint, test-tier1, test-tier2, clean
+```
 
 ## Protection Layers
 
@@ -85,7 +106,9 @@ Windows Event Logs (Application, System, Security) are shipped to Loki. Optional
 
 See the commented examples in `config.alloy`.
 
-## Testing
+## Testing (for contributors to this repo)
+
+If you're deploying this config to hosts, you can skip this section. The tests below are for anyone changing the config (adding metrics, adjusting rules) who needs to verify nothing regresses.
 
 ### Prerequisites
 

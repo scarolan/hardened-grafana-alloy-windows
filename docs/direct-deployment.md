@@ -8,11 +8,11 @@ Deploy the hardened `config.alloy` directly to each Windows host using standard 
 
 ### Create an Access Policy and Token
 
-1. Visit your org's access policies page: `https://grafana.com/orgs/YOURORG/access-policies`
+1. Visit your org's access policies page: `https://grafana.com/orgs/<your-org-slug>/access-policies` — replace `<your-org-slug>` with the slug from your Grafana Cloud org URL (the part after `/orgs/`)
 2. Click **Create access policy**
-3. Give it a descriptive name (e.g. "Grafana Alloy POC")
+3. Give it a descriptive name (e.g. "Hardened Alloy")
 4. Under **Realms**, select the stack(s) this policy applies to (single stack or all stacks)
-5. Skip the scopes checkboxes. Instead, use the **Add scope** dropdown and select **set:alloy-data-write**
+5. **Ignore the individual scope checkboxes.** Instead, use the **Add scope** dropdown at the bottom and pick `set:alloy-data-write` — this bundles the metrics, logs, traces, and profiles write scopes in one step
 6. Click **Create**
 
 ![Create access policy](create_access_policy.png)
@@ -20,14 +20,12 @@ Deploy the hardened `config.alloy` directly to each Windows host using standard 
 7. On the newly created policy, click the **Add token** button in the lower right
 
 ![Add token button](add_token.png)
-8. Give the token a name and set an expiration (e.g. 90 days for a POV)
+8. Give the token a name and set an expiration (90 days is typical for a pilot)
 9. Click **Create**
 
 ![Create token](create_token.png)
 
-**Copy the token immediately and save it to a file. You only get one chance to copy it.**
-
-This token is the value you'll use for the `GCLOUD_RW_API_KEY` environment variable below.
+**Copy the token value immediately — it's shown exactly once.** Save it somewhere safe; this is your `GCLOUD_RW_API_KEY`.
 
 ### Gather Your Endpoints
 
@@ -152,6 +150,6 @@ Once the smoke tests pass, import [**Dashboard ID 24390**](https://grafana.com/g
 | 2 | Deploy config.alloy | File copy via GPO Preferences / SCCM package |
 | 3 | Set env vars | GPO Preferences > Environment Variables |
 | 4 | Restart service | Startup script or scheduled task |
-| 5 | Import dashboard | One-time, in Grafana Cloud UI |
+| 5 | Verify + import dashboard | PromQL smoke test, then dashboard 24390 |
 
 All five steps use standard Windows admin tooling. No PowerShell scripts to run interactively on each box. When a config change is needed, you redeploy the file — there is no centralized config push.
