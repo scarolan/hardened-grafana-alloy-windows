@@ -58,13 +58,18 @@ This works with any deployment tool that can run exe installers (GPO startup scr
 
 ## Step 2: Deploy the Config File
 
-The installer drops a default `config.alloy`. Replace it with the hardened config from this repo at:
+The installer drops a default `config.alloy`. Replace it with the hardened config from this repo. Most users do this without cloning — pull the raw file, or copy-paste from the browser:
 
-```
-C:\Program Files\GrafanaLabs\Alloy\config.alloy
+```powershell
+# Download directly from the repo
+Invoke-WebRequest `
+  -Uri "https://raw.githubusercontent.com/scarolan/hardened-grafana-alloy-windows/main/config.alloy" `
+  -OutFile "C:\Program Files\GrafanaLabs\Alloy\config.alloy"
 ```
 
-How you distribute the file depends on your tooling:
+Or open the [raw file on GitHub](https://raw.githubusercontent.com/scarolan/hardened-grafana-alloy-windows/main/config.alloy), copy the contents, and paste into `C:\Program Files\GrafanaLabs\Alloy\config.alloy`.
+
+For scale-out, stage the file on a share/repo and distribute via your usual tooling:
 
 | Tool | Method |
 |------|--------|

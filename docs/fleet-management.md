@@ -54,12 +54,19 @@ Expand-Archive -Path alloy-installer-windows-amd64.exe.zip -DestinationPath .\al
 
 ## Step 2: Deploy `fleet-config.alloy`
 
-Replace the default `config.alloy` with the bootstrap config from this repo. Edit the Fleet Management URL and username before deploying:
+Grab the bootstrap config from this repo and replace the default `config.alloy` the installer dropped. Most users do this without cloning — pull the raw file, or copy-paste from the browser:
 
 ```powershell
-# Copy fleet-config.alloy from this repo to the Alloy config path
-Copy-Item fleet-config.alloy "C:\Program Files\GrafanaLabs\Alloy\config.alloy"
+# Download directly from the repo
+Invoke-WebRequest `
+  -Uri "https://raw.githubusercontent.com/scarolan/hardened-grafana-alloy-windows/main/fleet-config.alloy" `
+  -OutFile "C:\Program Files\GrafanaLabs\Alloy\config.alloy"
+
+# Edit the remotecfg URL and username to match your stack
+notepad "C:\Program Files\GrafanaLabs\Alloy\config.alloy"
 ```
+
+Or open the [raw file on GitHub](https://raw.githubusercontent.com/scarolan/hardened-grafana-alloy-windows/main/fleet-config.alloy), copy the contents, and paste into `C:\Program Files\GrafanaLabs\Alloy\config.alloy`.
 
 This config is deliberately tiny — it only connects to Fleet Management. The real pipelines come down over the wire.
 
