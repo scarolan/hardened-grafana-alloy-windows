@@ -1,6 +1,6 @@
 # Hardened Grafana Alloy for Windows
 
-Production-ready Grafana Alloy configuration for Windows Server monitoring with defense-in-depth cardinality protection. Optimized for the [Windows Exporter Dashboard 2025](https://grafana.com/grafana/dashboards/24390-windows-exporter-dashboard-2025/) (ID 24390).
+A default Grafana Alloy install on Windows ships around **2,900 series per host**, driven mostly by the service collector exploding into thousands of idle rows. This repo is a prebuilt, production-ready Alloy config that ships exactly what the [Windows Exporter Dashboard 2025 (ID 24390)](https://grafana.com/grafana/dashboards/24390-windows-exporter-dashboard-2025/) needs and nothing else. Five layers of cardinality protection keep a typical host around **135 series**, scaling to **150–250** on bigger servers — predictable cost, no dashboard regressions.
 
 ## Pick Your Deployment Path
 
@@ -8,6 +8,8 @@ Production-ready Grafana Alloy configuration for Windows Server monitoring with 
 |------|-------------|-------|
 | **Direct Deployment** | The hardened `config.alloy` lives on each host. You manage config updates via your existing tooling (GPO, SCCM, Intune, manual). | [docs/direct-deployment.md](docs/direct-deployment.md) |
 | **Fleet Management** | A minimal bootstrap config (`fleet-config.alloy`) lives on each host. You build and push the real collection pipelines centrally via Grafana Cloud Fleet Management. | [docs/fleet-management.md](docs/fleet-management.md) |
+
+Both paths need the same five environment variables. See **[docs/env-vars.md](docs/env-vars.md)** for the canonical reference and how to set them (Machine scope, service-scoped registry, GPO).
 
 ## Protection Layers
 

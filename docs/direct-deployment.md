@@ -93,7 +93,7 @@ The config reads all credentials from system environment variables, so nothing s
 [System.Environment]::SetEnvironmentVariable("GRAFANA_LOGS_USERNAME", "000000", "Machine")
 ```
 
-**For fleet deployment via GPO:**
+**For mass deployment via GPO:**
 
 1. Open Group Policy Management Console
 2. Navigate to Computer Configuration > Preferences > Windows Settings > Environment
@@ -101,6 +101,8 @@ The config reads all credentials from system environment variables, so nothing s
 4. Set Action to "Replace" and target to "Machine"
 
 The same variables work with SCCM, Intune, or any tool that can set system environment variables.
+
+Full reference (including service-scoped registry option for better isolation and verification commands): see [env-vars.md](env-vars.md).
 
 ## Step 4: Restart the Service
 
@@ -114,17 +116,33 @@ For GPO deployments, a scheduled task or startup script handles this. The servic
 
 ## Step 5: Verify and Import the Dashboard
 
-After a few minutes, metrics should appear in your Grafana Cloud stack. Import [**Dashboard ID 24390**](https://grafana.com/grafana/dashboards/24390-windows-exporter-dashboard-2025/) (Windows Exporter Dashboard 2025) to visualize everything the hardened config collects.
+### Quick PromQL smoke test
 
-To verify from any server:
+Confirm data is flowing *before* importing the dashboard. Go to **Explore → Prometheus** in Grafana and run:
+
+```promql
+# 1. Is this host's Alloy alive and scraping?
+up{instance="<your-hostname>"}
+# Expected: 1
+
+# 2. How many distinct series is this host shipping?
+count(count by (__name__) ({instance="<your-hostname>"}))
+# Expected: ~135 for a typical 2-vCPU host, ~150-250 on larger servers
+
+# 3. Any metrics missing required labels? (should be empty in production)
+count({quality_warning="missing_required_labels", instance="<your-hostname>"})
+```
+
+If query 1 is `0` or empty, the host isn't pushing. Check the Windows service first:
 
 ```powershell
-# Check service is running
 Get-Service Alloy
-
-# Check Alloy logs for errors
-Get-WinEvent -LogName Application -ProviderName Alloy -MaxEvents 20
+Get-WinEvent -LogName Application -ProviderName Alloy -MaxEvents 20 | Format-List
 ```
+
+### Import the dashboard
+
+Once the smoke tests pass, import [**Dashboard ID 24390**](https://grafana.com/grafana/dashboards/24390-windows-exporter-dashboard-2025/) (Windows Exporter Dashboard 2025). All panels should populate.
 
 ## Summary
 
