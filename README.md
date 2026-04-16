@@ -1,6 +1,6 @@
 # Hardened Grafana Alloy for Windows
 
-A default Grafana Alloy install on Windows ships around **2,900 series per host**, driven mostly by the service collector exploding into thousands of idle rows. This repo is a prebuilt, production-ready Alloy config that ships exactly what the [Windows Exporter Dashboard 2025 (ID 24390)](https://grafana.com/grafana/dashboards/24390-windows-exporter-dashboard-2025/) needs and nothing else. Five layers of cardinality protection keep a typical host around **135 series**, scaling to **150–250** on bigger servers — predictable cost, no dashboard regressions.
+This repo is a prebuilt, production-ready Grafana Alloy config that ships exactly what the [Windows Exporter Dashboard 2025 (ID 24390)](https://grafana.com/grafana/dashboards/24390-windows-exporter-dashboard-2025/) needs. Five layers of cardinality protection keep a typical host around **135 series**, scaling to **150–250** on bigger servers — predictable cost, no dashboard regressions.
 
 ## Pick Your Deployment Path
 
