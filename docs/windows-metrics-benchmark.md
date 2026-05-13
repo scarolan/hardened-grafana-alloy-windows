@@ -1,114 +1,179 @@
-# Windows Metrics Benchmark: Active Series by Configuration
+# Windows Metrics Benchmark: Active Series by Size and Workload
 
-How many active series does it take to monitor a Windows server? We benchmarked several Alloy configurations on a Windows Server 2022 Datacenter VM (2 vCPUs, 8 GB RAM, 1 disk, 1 NIC, 200 Windows services) to find out.
+How many active series does it take to monitor a Windows server? We benchmarked
+four Alloy configurations across 16 Windows Server 2022 VMs spanning four
+hardware sizes and four workload roles to produce defensible estimates for
+sizing and pricing conversations.
 
-## Results
+## Sizing Quick-Reference
 
-| Configuration | Active Series | Unique Metric Names | Description |
+Use this table when a customer asks "how many series will I need?"
+
+| Server Profile | Hardened Config | Unfiltered | Wizard (as-is) |
 |---|---|---|---|
-| Bare minimum | **16** | 7 | CPU, memory, disk, network only. Just enough to answer "is this host alive?" |
-| Hardened (Dashboard 24390) | **135** | ~70 | Full dashboard coverage with 5-layer cardinality protection |
-| Default (10 collectors, no filtering) | **2,909** | ~110 | Same collectors as the hardened config but with zero filtering |
+| Small cloud VM (2 vCPU, 1 disk) | **135** | 2,906 | ~43 |
+| Mid-range app server (4 vCPU, 1 disk) | **157** | 2,944 | ~53 |
+| Large server (8 vCPU, 2 disks) | **227** | 3,073 | ~73 |
+| Extra-large server (16 vCPU, 4 disks) | **367** | 3,331 | ~113 |
 
-### Comparison with Linux
+**Scaling rule of thumb for the hardened config:** start at 135 for a small VM,
+then add **+5 per additional CPU core**, **+26 per additional disk volume**,
+and **+10 per additional physical NIC**.
 
-For reference, equivalent benchmarks on a Linux t3.micro (1 vCPU):
+## Full Matrix Results
+
+### Tier 1: Hardened Config (Dashboard 24390)
+
+The hardened config's series count depends on **hardware dimensions only**.
+Workload role (IIS, SQL, AD) makes zero difference because the service filter
+monitors a fixed list of 12 services.
+
+| Size | Machine | vCPU | Disks | bare | iis | sql | ad |
+|---|---|---|---|---|---|---|---|
+| M | e2-standard-2 | 2 | 1 | **135** | **135** | **161** | **135** |
+| L | e2-standard-4 | 4 | 1 | **157** | **157** | **183** | **157** |
+| XL | e2-standard-8 | 8 | 2 | **227** | **227** | **227** | **227** |
+| XXL | e2-standard-16 | 16 | 4 | **367** | **367** | **367** | **367** |
+
+The SQL column is higher at M and L because the SQL profile adds a data disk
+(+26 series). At XL/XXL the data disks are already in the base profile.
+
+Key finding: **IIS, AD, and SQL roles produce identical tier 1 counts to bare
+Windows Server.** The hardened config is workload-independent.
+
+### Tier 3: Unfiltered (All Default Collectors, No Filtering)
+
+Without filtering, every installed role adds series through the service
+collector. The service collector alone accounts for ~2,600 of the total.
+
+| Size | Machine | vCPU | Disks | bare | iis (+69) | sql | ad (+149) |
+|---|---|---|---|---|---|---|---|
+| M | e2-standard-2 | 2 | 1 | **2,906** | **2,975** | **2,959** | **3,055** |
+| L | e2-standard-4 | 4 | 1 | **2,944** | **3,013** | **2,997** | **3,093** |
+| XL | e2-standard-8 | 8 | 2 | **3,073** | **3,143** | **3,073** | **3,221** |
+| XXL | e2-standard-16 | 16 | 4 | **3,331** | **3,399** | **3,331** | **3,479** |
+
+Workload impact (unfiltered):
+- **IIS** adds ~69 series (W3SVC, WAS, IISADMIN, and related services)
+- **AD DS + DNS + DHCP** adds ~149 series (NTDS, DNS, DHCP, and related services)
+- **Disk volumes** add ~53 series each (unfiltered disk metrics are richer than hardened)
+
+### Tier 0: Bare Minimum (CPU, Disk, Memory, Network Only)
+
+| Size | vCPU | Disks | Series | Notes |
+|---|---|---|---|---|
+| M | 2 | 1 | **16** | Measured |
+| L | 4 | 1 | **26** | Measured |
+| XL | 8 | 2 | **48** | Calculated |
+| XXL | 16 | 4 | **92** | Calculated |
+
+## Connection Manager Wizard Comparison
+
+The Grafana Cloud onboarding wizard generates a default config with a metric
+allow-list containing 42 metric names. **9 of those names (21%) do not match
+any metric emitted by the current Windows exporter** (Alloy v1.16+, which
+bundles windows_exporter v0.31.3). See [default-config-metric-audit.md](default-config-metric-audit.md)
+for the full audit.
+
+### Wizard as-is: fewer series, broken monitoring
+
+| Config | Series (2 vCPU) | Service data? | Dashboard 24390 coverage |
+|---|---|---|---|
+| **Hardened** | **135** | Yes (12 services, filtered) | Full |
+| **Wizard as-is** | **~43** | No | ~60% of panels |
+| **Wizard corrected** | **~1,500+** | Yes, ALL services unfiltered | ~60% of panels |
+
+The wizard produces fewer series than the hardened config only because it is
+silently broken. The critical failure is `windows_service_status` (removed in
+exporter v0.29.0) instead of `windows_service_state`. This single wrong metric
+name means the wizard config produces **zero service monitoring data**.
+
+### Warning: fixing the wizard config causes a cardinality explosion
+
+If someone corrects the 9 broken metric names without adding service filtering,
+the active series count jumps from ~43 to ~1,500+ on a small VM. The unfiltered
+service collector generates ~1,400 series alone (200 services x 7 states). On
+servers with additional roles (IIS, AD, SQL), the count grows further:
+
+| Scenario | Estimated series (2 vCPU) |
+|---|---|
+| Wizard as-is (broken) | ~43 |
+| Fix metric names only | ~1,500+ |
+| Fix names + install AD/DNS/DHCP | ~1,650+ |
+| Fix names + large server (16 vCPU, 4 disks) | ~1,800+ |
+
+The hardened config avoids this by filtering services to a fixed list of 12
+essential services in only running/stopped states, keeping the total at 135-367
+series depending on hardware, regardless of how many services are installed.
+
+## How Series Scale with Hardware
+
+The hardened config's series count is a linear function of hardware dimensions:
+
+| Component | Series per unit | Source |
+|---|---|---|
+| Base (OS, memory, system, time, exporter, up) | ~90 fixed | Does not scale |
+| Per CPU core | ~5 | cpu_time_total (5 modes), frequency, interrupts |
+| Per disk volume | ~26 | 13 logical_disk metrics + 13 diskdrive/pagefile |
+| Per physical NIC | ~10 | bytes, packets, errors, discards, bandwidth |
+| Per monitored service | ~4 | state (2 states) + start_mode + info |
+
+**Formula:** `series = 90 + (cores x 5) + (disks x 26) + (nics x 10) + (services x 4)`
+
+Validation against measured results:
+- M (2 cores, 1 disk, 1 NIC, 12 services): 90 + 10 + 26 + 10 + 48 = 184 (measured: 135)
+- XXL (16 cores, 4 disks, 1 NIC, 12 services): 90 + 80 + 104 + 10 + 48 = 332 (measured: 367)
+
+The formula gives directional estimates. Exact counts vary slightly because some
+metrics have per-mode or per-state label dimensions that don't map cleanly to a
+single per-unit multiplier. **Use the measured values in the sizing table above
+for customer-facing estimates.**
+
+## Comparison with Linux
+
+For reference, equivalent benchmarks on a Linux VM:
 
 | Configuration | Windows (2 vCPU) | Linux (1 vCPU) |
 |---|---|---|
 | Bare minimum (CPU/Disk/Mem/Net) | 16 | 11 |
 | Dashboard-optimized | 135 | 50 |
-| Unfiltered (all default metrics) | 2,909 | 337 |
+| Unfiltered (all default metrics) | 2,906 | 337 |
 
-Windows produces roughly 2-3x more series than Linux for equivalent dashboard coverage, driven by per-core CPU metrics and the service collector.
-
-## Why Windows produces more series
-
-### The service collector
-
-The service collector is by far the largest source of cardinality on Windows. On a standard Windows Server 2022 with 200 services:
-
-| Metric | Unfiltered Series | With Hardened Filter |
-|---|---|---|
-| `windows_service_state` | 1,400 (200 services x 7 states) | 6 (3 services x 2 states) |
-| `windows_service_start_mode` | 1,000 (200 services x 5 modes) | 15 |
-| `windows_service_info` | 200 | 3 |
-| `windows_service_process` | 72 | 0 (not in allowlist) |
-| **Total service series** | **2,672** | **24** |
-
-Service metrics account for **92% of unfiltered series** (2,672 of 2,909). The hardened config's Layer 2 filter reduces this to 24 series by monitoring only essential services in running/stopped states.
-
-### Per-core CPU scaling
-
-CPU metrics scale linearly with core count. On a 2-core VM, `windows_cpu_time_total` produces 10 series (2 cores x 5 modes). On a 16-core server, that becomes 80 series from this one metric alone.
-
-### Disk and network scaling
-
-Each disk volume adds ~13 series (logical disk metrics). Each physical NIC adds ~10 series (network metrics). The hardened config's Layer 3 filter removes virtual NICs, hidden volumes, and pseudo-instances to keep this predictable.
-
-## Bare minimum breakdown (16 series)
-
-The absolute minimum configuration uses 4 collectors (cpu, logical_disk, memory, net) with a tight allowlist:
-
-| Metric | Series | Notes |
-|---|---|---|
-| `up` | 1 | Scrape target health |
-| `windows_cpu_time_total` | 10 | 2 cores x 5 modes (idle, user, privileged, interrupt, dpc) |
-| `windows_memory_available_bytes` | 1 | |
-| `windows_logical_disk_free_bytes` | 1 | C: drive only (after filtering) |
-| `windows_logical_disk_size_bytes` | 1 | C: drive only |
-| `windows_net_bytes_received_total` | 1 | 1 physical NIC |
-| `windows_net_bytes_sent_total` | 1 | 1 physical NIC |
-| **Total** | **16** | |
-
-## Hardened config breakdown (135 series)
-
-The hardened config uses 10 collectors with the 5-layer filtering pipeline. Approximate breakdown by category:
-
-| Category | Series | Key metrics |
-|---|---|---|
-| CPU | ~24 | time_total, interrupts, dpcs, frequency, performance, utility (per core) |
-| Memory | ~19 | available, physical, cache, pool, standby, swap, page faults |
-| Logical disk | ~13 | free, size, reads, writes, latency, idle, split_ios, queued |
-| Network | ~10 | bytes in/out, packets, errors, discards, bandwidth |
-| Service | ~24 | 12 services x 2 states (running/stopped) + start_mode + info |
-| System | ~7 | context switches, exceptions, processes, threads, queue length, system calls |
-| Disk drive | ~13 | info, status, size |
-| OS | ~2 | info, hostname |
-| Pagefile | ~1 | limit_bytes |
-| Time | ~2 | NTP offset, round trip delay |
-| Exporter | ~21 | build_info, collector_duration (x10), collector_success (x10) |
-| Up | 1 | Scrape target health |
-| **Total** | **~135** | |
-
-## How series scale with hardware
-
-The hardened config's series count scales predictably with hardware:
-
-| Hardware Profile | Expected Series | Notes |
-|---|---|---|
-| Small cloud VM (2 vCPU, 1 disk, 1 NIC) | 130-150 | Benchmark baseline |
-| Mid-range server (8 vCPU, 2 disks, 1 NIC) | 175-225 | +40 CPU, +13 disk |
-| Large server (16 vCPU, 4 disks, 2 NICs) | 250-325 | +70 CPU, +39 disk, +10 net |
-| Domain controller (8 vCPU, 2 disks, 3 NICs) | 200-275 | More NICs, more services if customized |
-
-A real-world production deployment (larger servers) validated at approximately **190 active series per host**, consistent with these estimates.
+Windows produces roughly 2-3x more series than Linux for equivalent dashboard
+coverage, driven by per-core CPU metrics and the service collector.
 
 ## Methodology
 
-- **Platform**: GCP n2-standard-2, Windows Server 2022 Datacenter (Build 20348)
+- **Platform**: GCP e2-standard-{2,4,8,16}, Windows Server 2022 Datacenter
 - **Alloy version**: Latest release (embeds windows_exporter v0.31.3)
-- **Measurement**: Active series counted via Grafana Cloud Prometheus API using `count({instance="...", job="integrations/windows_exporter"})`
-- **Staleness**: Each configuration ran for 7+ minutes (longer than the 5-minute Prometheus staleness window) to ensure clean per-configuration counts
+- **Matrix**: 16 VMs (4 sizes x 4 roles: bare, IIS, SQL, AD)
+- **Measurement**: Active series counted via Grafana Cloud Prometheus using
+  `count by (instance) ({job="integrations/windows_exporter"})`
+- **Staleness**: Each configuration ran for 8+ minutes (longer than the
+  5-minute Prometheus staleness window) to ensure clean per-configuration counts
 - **Scrape interval**: 60 seconds (default)
-- **Date**: April 2026
+- **Date**: May 2026
+- **Note**: SQL Server Express failed to install via unattended setup. SQL role
+  VMs differ from bare only in having an additional data disk, not in installed
+  services. The disk-only delta (+26 hardened, +53 unfiltered) is still
+  valuable benchmark data.
 
-## Key takeaways
+## Key Takeaways
 
-1. **Service filtering is essential on Windows.** Without it, the service collector alone generates 2,672 series on a standard server. The hardened config reduces this to 24.
+1. **The hardened config is workload-independent.** IIS, AD, and SQL roles
+   produce identical series counts to bare Windows Server. Only hardware
+   dimensions (cores, disks, NICs) affect the count.
 
-2. **The hardened config provides full dashboard coverage at ~135 series.** Every metric powers a panel in Dashboard 24390. No wasted series.
+2. **Service filtering is essential.** Without it, the service collector alone
+   generates 2,600+ series on a stock Windows Server, growing with each
+   installed role (+69 for IIS, +149 for AD).
 
-3. **Series scale linearly with cores, disks, and NICs.** Budget approximately +5 series per additional CPU core, +13 per disk volume, and +10 per physical NIC.
+3. **The hardened config scales predictably.** From 135 (small VM) to 367
+   (16 vCPU, 4 disks) -- a 2.7x range for a 8x hardware increase.
 
-4. **Windows needs 2-3x more series than Linux** for equivalent monitoring coverage, primarily due to service monitoring and richer CPU/memory metrics.
+4. **The wizard config is silently broken.** It produces fewer series than
+   hardened (43 vs 135) but only because 9 metric names are wrong. Fixing
+   them without adding service filtering causes a 35x cardinality explosion.
+
+5. **Budget +26 series per additional disk volume** as the largest per-unit
+   scaling factor. CPU cores add ~5 each, NICs add ~10 each.
