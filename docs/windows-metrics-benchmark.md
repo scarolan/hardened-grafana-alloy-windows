@@ -17,7 +17,7 @@ Use this table when a customer asks "how many series will I need?"
 | Extra-large server (16 vCPU, 4 disks) | **367** | 3,331 | ~113 |
 
 **Scaling rule of thumb for the hardened config:** start at 135 for a small VM,
-then add **+5 per additional CPU core**, **+26 per additional disk volume**,
+then add **+11 per additional CPU core**, **+26 per additional disk volume**,
 and **+10 per additional physical NIC**.
 
 ## Full Matrix Results
@@ -112,17 +112,17 @@ The hardened config's series count is a linear function of hardware dimensions:
 
 | Component | Series per unit | Source |
 |---|---|---|
-| Base (OS, memory, system, time, exporter, up) | ~90 fixed | Does not scale |
-| Per CPU core | ~5 | cpu_time_total (5 modes), frequency, interrupts |
+| Base (OS, memory, system, time, exporter, up) | ~29 fixed | Does not scale |
+| Per CPU core | ~11 | cpu_time_total (5 modes x 2), frequency, interrupts, etc. |
 | Per disk volume | ~26 | 13 logical_disk metrics + 13 diskdrive/pagefile |
 | Per physical NIC | ~10 | bytes, packets, errors, discards, bandwidth |
 | Per monitored service | ~4 | state (2 states) + start_mode + info |
 
-**Formula:** `series = 90 + (cores x 5) + (disks x 26) + (nics x 10) + (services x 4)`
+**Formula:** `series = 29 + (cores x 11) + (disks x 26) + (nics x 10) + (services x 4)`
 
 Validation against measured results:
-- M (2 cores, 1 disk, 1 NIC, 12 services): 90 + 10 + 26 + 10 + 48 = 184 (measured: 135)
-- XXL (16 cores, 4 disks, 1 NIC, 12 services): 90 + 80 + 104 + 10 + 48 = 332 (measured: 367)
+- M (2 cores, 1 disk, 1 NIC, 12 services): 29 + 22 + 26 + 10 + 48 = 135 (measured: 135)
+- XXL (16 cores, 4 disks, 1 NIC, 12 services): 29 + 176 + 104 + 10 + 48 = 367 (measured: 367)
 
 The formula gives directional estimates. Exact counts vary slightly because some
 metrics have per-mode or per-state label dimensions that don't map cleanly to a
@@ -131,16 +131,24 @@ for customer-facing estimates.**
 
 ## Comparison with Linux
 
-For reference, equivalent benchmarks on a Linux VM:
+Windows produces fewer dashboard-optimized series per host than Linux at the
+same hardware size, despite common intuition:
 
-| Configuration | Windows (2 vCPU) | Linux (1 vCPU) |
-|---|---|---|
-| Bare minimum (CPU/Disk/Mem/Net) | 16 | 11 |
-| Dashboard-optimized | 135 | 50 |
-| Unfiltered (all default metrics) | 2,906 | 337 |
+| Size | Windows hardened | Linux hardened | Why Windows is lower |
+|---|---|---|---|
+| M (2 vCPU) | **135** | **~400** | Linux: 19 series/core vs Windows: 11 |
+| L (4 vCPU) | **157** | **~500** | + Linux enables systemd, schedstat, cpufreq |
+| XL (8 vCPU) | **227** | **~650** | + Linux base is ~210 vs Windows ~29 |
+| XXL (16 vCPU) | **367** | **~850** | Per-core gap compounds at scale |
 
-Windows produces roughly 2-3x more series than Linux for equivalent dashboard
-coverage, driven by per-core CPU metrics and the service collector.
+The Linux hardened config enables more per-core collectors (schedstat, cpufreq,
+guest time) and has a higher fixed base (~210 vs ~29) due to systemd unit
+monitoring, PSI, TCP states, and per-collector scrape health metrics. Windows
+has fewer CPU time modes (5 vs 10) and no equivalent to schedstat or cpufreq.
+
+Unfiltered, the picture reverses: Windows produces ~2,900 series (2 vCPU) vs
+Linux ~337, driven entirely by the Windows service collector (~2,600 series for
+~200 services x 7 states x 2 labels).
 
 ## Methodology
 
